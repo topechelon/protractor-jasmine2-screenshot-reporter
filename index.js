@@ -44,11 +44,16 @@ function Jasmine2ScreenShotReporter(opts) {
       'data-spec="<%= specId %>" ' +
       'data-name="<%= name %>" ' +
       'data-browser="<%= browserName %>">' +
+      '<table>' +
+      '<% _.forEach(filename, function (val, key) { %>' +
+      '  <tr>' +
+      '    <td><%= key %></td>' +
+      '    <td>[<a href="<%= sourceHtml[key] %>" download>Source</a>]</td>' +
+      '    <td>[<a href="<%= filename[key] %>" target="_blank">Screenshot</a>]</td>' +
+      '  </tr>' +
+      '<% }) %>' +
+      '</table>' +
       '<%= mark %>' +
-      '<a href="<%= filename[\'main\'] %>"><%= name %></a>' +
-      '<% _.forEach(filename, function (val, key) { if (key != \'main\') { %>' +
-      ' [<a href="<%= val %>"><%= key %></a>] ' +
-      '<% } }) %>' +
       '(<%= duration %> s)' +
       '<%= reason %>' +
       '<%= failedUrl %>' +
@@ -61,11 +66,16 @@ function Jasmine2ScreenShotReporter(opts) {
       'data-spec="<%= specId %>" ' +
       'data-name="<%= name %>" ' +
       'data-browser="<%= browserName %>">' +
+      '<table>' +
+      '<% _.forEach(filename, function (val, key) { %>' +
+      '  <tr>' +
+      '    <td><%= key %></td>' +
+      '    <td>[<a href="<%= sourceHtml[key] %>" download>Source</a>]</td>' +
+      '    <td><img src="<%= filename[key] %>"></img></td>' +
+      '  </tr>' +
+      '<% }) %>' +
+      '</table>' +
       '<%= mark %>' +
-      '<img src="<%= filename[\'main\'] %>"><%= name %></img>' +
-      '<% _.forEach(filename, function (val, key) { if (key != \'main\') { %>' +
-      ' [<img src="<%= val %>"><%= key %></img>] ' +
-      '<% } }) %>' +
       '(<%= duration %> s)' +
       '<%= reason %>' +
       '<%= failedUrl %>' +
@@ -94,7 +104,8 @@ function Jasmine2ScreenShotReporter(opts) {
       '<style>' +
       'body { font-family: Arial; }' +
       'ul { list-style-position: inside; }' +
-      'li img { max-width: 100%; }' +
+      'li img { max-width: 100%; max-height: 500px; border: 1px solid black; }' +
+      'td { vertical-align: top; padding: 5px; }' +
       'span.passed { padding: 0 1em; color: green; }' +
       'span.failed { padding: 0 1em; color: red; }' +
       'span.pending { padding: 0 1em; color: orange; }' +
@@ -207,9 +218,9 @@ function Jasmine2ScreenShotReporter(opts) {
   );
 
   // write data into opts.dest as filename
-  var writeScreenshot = function (data, filename) {
+  var writeFileData = function ({ data, filename, encoding }) {
     var stream = fs.createWriteStream(opts.dest + filename);
-    stream.write(new Buffer(data, 'base64'));
+    stream.write(new Buffer(data, encoding));
     stream.end();
   };
 
@@ -415,6 +426,7 @@ function Jasmine2ScreenShotReporter(opts) {
       cssClass: statusCssClass[spec.status],
       duration: getDuration(spec),
       filename: spec.filename,
+      sourceHtml: spec.sourceHtml,
       id:       uuid.v1(),
       mark:     marks[spec.status],
       name:     escapeInvalidXmlChars(spec.fullName.replace(suiteName, '').trim()),
@@ -585,6 +597,7 @@ function Jasmine2ScreenShotReporter(opts) {
 
   this.specDone = function(spec) {
     spec.filename = {};
+    spec.sourceHtml = {};
     spec = getSpecClone(spec);
     spec._finished = Date.now();
 
@@ -597,33 +610,41 @@ function Jasmine2ScreenShotReporter(opts) {
       if (!browserInstance) {
         return;
       }
-      browserInstance.takeScreenshot().then(function (png) {
-        browserInstance.getCapabilities().then(function (capabilities) {
-          var screenshotPath,
-              metadataPath,
-              metadata;
 
-          var file = opts.pathBuilder(spec, suites, capabilities);
-          spec.filename[key] = file + '.png';
+      browserInstance.getCapabilities().then(function (capabilities) {
+        var screenshotPath,
+            metadataPath,
+            metadata;
 
-          screenshotPath = path.join(opts.dest, spec.filename[key]);
-          metadata       = opts.metadataBuilder(spec, suites, capabilities);
+        var file = opts.pathBuilder(spec, suites, capabilities);
+        spec.filename[key] = file + '.png';
+        spec.sourceHtml[key] = file + '.html';
 
-          if (metadata) {
-            metadataPath = path.join(opts.dest, file + '.json');
-            mkdirp(path.dirname(metadataPath), function(err) {
-              if(err) {
-                throw new Error('Could not create directory for ' + metadataPath);
-              }
-              writeMetadata(metadata, metadataPath);
-            });
+        screenshotPath = path.join(opts.dest, spec.filename[key]);
+        metadata       = opts.metadataBuilder(spec, suites, capabilities);
+
+        if (metadata) {
+          metadataPath = path.join(opts.dest, file + '.json');
+          mkdirp(path.dirname(metadataPath), function(err) {
+            if(err) {
+              throw new Error('Could not create directory for ' + metadataPath);
+            }
+            writeMetadata(metadata, metadataPath);
+          });
+        }
+
+        mkdirp(path.dirname(screenshotPath), function(err) {
+          if (err) {
+            throw new Error('Could not create directory for ' + screenshotPath);
           }
 
-          mkdirp(path.dirname(screenshotPath), function(err) {
-            if(err) {
-              throw new Error('Could not create directory for ' + screenshotPath);
-            }
-            writeScreenshot(png, spec.filename[key]);
+          browserInstance.takeScreenshot().then(function(png) {
+            writeFileData({ data: png, filename: spec.filename[key], encoding: 'base64' });
+          });
+
+          browserInstance.getPageSource().then(function(html) {
+            console.log(spec.sourceHtml);
+            writeFileData({ data: html, filename: spec.sourceHtml[key], encoding: 'utf8' });
           });
         });
       });
